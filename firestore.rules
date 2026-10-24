@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function verified() { return signedIn() && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function member(groupId) {
+      return verified() && email() in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+    }
+    function expense() {
+      let d = request.resource.data;
+      return d.keys().hasAll(['title', 'cents', 'payer', 'shares', 'category', 'date', 'createdBy'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.cents is int && d.cents > 0 && d.cents <= 100000000
+        && d.shares is map && d.category is string && d.date is string
+        && d.createdBy == email();
+    }
+    function shareValid(d, members, i) {
+      return i >= members.size() || (d.shares[members[i]] is int && d.shares[members[i]] >= 0 && d.shares[members[i]] <= d.cents);
+    }
+    function shareValue(d, members, i) {
+      return i < members.size() ? d.shares[members[i]] : 0;
+    }
+    function validShares(d, members) {
+      return d.shares.keys().hasAll(members) && d.shares.keys().hasOnly(members)
+        && shareValid(d, members, 0) && shareValid(d, members, 1) && shareValid(d, members, 2) && shareValid(d, members, 3) && shareValid(d, members, 4) && shareValid(d, members, 5) && shareValid(d, members, 6) && shareValid(d, members, 7) && shareValid(d, members, 8) && shareValid(d, members, 9) && shareValid(d, members, 10) && shareValid(d, members, 11) && shareValid(d, members, 12) && shareValid(d, members, 13) && shareValid(d, members, 14) && shareValid(d, members, 15) && shareValid(d, members, 16) && shareValid(d, members, 17) && shareValid(d, members, 18) && shareValid(d, members, 19)
+        && (shareValue(d, members, 0) + shareValue(d, members, 1) + shareValue(d, members, 2) + shareValue(d, members, 3) + shareValue(d, members, 4) + shareValue(d, members, 5) + shareValue(d, members, 6) + shareValue(d, members, 7) + shareValue(d, members, 8) + shareValue(d, members, 9) + shareValue(d, members, 10) + shareValue(d, members, 11) + shareValue(d, members, 12) + shareValue(d, members, 13) + shareValue(d, members, 14) + shareValue(d, members, 15) + shareValue(d, members, 16) + shareValue(d, members, 17) + shareValue(d, members, 18) + shareValue(d, members, 19)) == d.cents;
+    }
+    match /users/{uid}/expenses/{expenseId} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid && expense()
+        && request.resource.data.payer == email()
+        && request.resource.data.shares.keys().hasOnly([email()])
+        && request.resource.data.shares[email()] == request.resource.data.cents;
+    }
+    match /groups/{groupId} {
+      allow read: if verified() && email() in resource.data.members;
+      allow create: if verified()
+        && request.resource.data.keys().hasOnly(['name', 'members', 'owner'])
+        && request.resource.data.owner == email()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.members is list
+        && request.resource.data.members.size() >= 2
+        && request.resource.data.members.size() <= 20
+        && email() in request.resource.data.members;
+      match /expenses/{expenseId} {
+        allow read: if member(groupId);
+        allow create: if member(groupId) && expense()
+          && request.resource.data.payer in get(/databases/$(database)/documents/groups/$(groupId)).data.members
+          && validShares(request.resource.data, get(/databases/$(database)/documents/groups/$(groupId)).data.members);
+      }
+    }
+  }
+}
